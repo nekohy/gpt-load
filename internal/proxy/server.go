@@ -145,6 +145,10 @@ func (ps *ProxyServer) executeRequestWithRetry(
 		timeout := time.Duration(cfg.RequestTimeout) * time.Second
 		ctx, cancel = context.WithTimeout(c.Request.Context(), timeout)
 	}
+	// 传递上下文
+	channelTypeValue, _ := c.Get("channel_type")
+	channelType := channelTypeValue.(int)
+	ctx = context.WithValue(ctx, "channel_type", channelType)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, c.Request.Method, upstreamURL, bytes.NewReader(bodyBytes))
@@ -157,12 +161,28 @@ func (ps *ProxyServer) executeRequestWithRetry(
 
 	req.Header = c.Request.Header.Clone()
 
-	// Clean up client auth key
-	req.Header.Del("Authorization")
-	req.Header.Del("X-Api-Key")
-	req.Header.Del("X-Goog-Api-Key")
+	// Clean up client auth key and replace with API key
+	if authHeader := req.Header.Get("Authorization"); authHeader != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey.KeyValue)
+	} else {
+		req.Header.Del("Authorization")
+	}
+	if req.Header.Get("X-Api-Key") != "" {
+		req.Header.Set("X-Api-Key", apiKey.KeyValue)
+	} else {
+		req.Header.Del("X-Api-Key")
+	}
+	if req.Header.Get("X-Goog-Api-Key") != "" {
+		req.Header.Set("X-Goog-Api-Key", apiKey.KeyValue)
+	} else {
+		req.Header.Del("X-Goog-Api-Key")
+	}
 	q := req.URL.Query()
-	q.Del("key")
+	if q.Get("key") != "" {
+		q.Set("key", apiKey.KeyValue)
+	} else {
+		q.Del("key")
+	}
 	req.URL.RawQuery = q.Encode()
 
 	// Apply custom header rules
